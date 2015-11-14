@@ -8,9 +8,11 @@ Write a binary image
 * @date 2015/10/20
 */
 #include "bmp.h"
+#include <iostream>
+#include <string>
 #include <stdio.h>
 #include <stdlib.h>
-#define BYTEPTR BYTE*
+using namespace std;
 
 int HORIZONTALSLIDE;
 int VERTICALSLIDE;
@@ -99,37 +101,77 @@ int * calculateThreshoulds(double *src,int height, int width)
     return threshoulds;
 }
 
-void Dilation(BYTEPTR *&fullImage,unsigned int &height,unsigned int &width)
+/*Erosion of the image*/
+BYTE* Dilation(BYTE *fullImage,unsigned int &height,unsigned int &width)
 {
-    for(int i=0;i<height;i++)
+    BYTE *tmp_fullImage = new BYTE[4320*7680];
+    for(unsigned int i=0;i<height;i++)
     {
-        for(int j=0;j<width;j++)
+        for(unsigned int j=0;j<width;j++)
         {
-            if(fullImage[i][j]==1)
+            if(fullImage[i*width+j]==0)
             {
-                fullImage[i][j+1]=1;
-                fullImage[i][j-1]=1;
-                fullImage[i-1][j]=1;
-                fullImage[i+1][j]=1;
+		fullImage[i*width+j]=0;
+		if(j!=width-1)
+                tmp_fullImage[i*width+j+1]=0;
+		if(j!=0)
+                tmp_fullImage[i*width+j-1]=0;
+		if(i!=height-1)
+                tmp_fullImage[(i+1)*width+j]=0;
+		if(i!=0)
+                tmp_fullImage[(i-1)*width+j]=0;
             }
+        else tmp_fullImage[i*width+j]=255;
         }
     }
+    return tmp_fullImage;
 }
 
-int binaryImage(char *Src)
+/*Erosion of the image*/
+BYTE* Erosion(BYTE *fullImage,unsigned int &height,unsigned int &width)
 {
-    FILE* fp, *fp_gray;
+    BYTE *tmp_fullImage = new BYTE[4320*7680];
+    for(unsigned int i=0;i<height;i++)
+    {
+        for(unsigned int j=0;j<width;j++)
+        {
+            if(fullImage[i*width+j]==0)
+            {
+                if(i==0||j==0||i==height-1||j==width-1)
+		{	tmp_fullImage[i*width+j]=255;
+			continue;
+		}
+                else
+                {
+                    if(fullImage[(i+1)*width+j]==0&&fullImage[(i-1)*width+j]==0&&fullImage[i*width+j+1]==0&&fullImage[i*width+j-1]==0)
+                        tmp_fullImage[i*width+j]=0;
+                    else
+                        tmp_fullImage[i*width+j]=255;
+                }
+            }
+        else tmp_fullImage[i*width+j]=255;
+        }
+    }
+    return tmp_fullImage;
+}
+
+int binaryImage(string Src,string Dst)
+{
+    FILE* fp, *fp_dilation, *fp_erosion, *fp_opening, *fp_closing;
     BITMAPFILEHEADER bmfh, bmfh_gray;
     BITMAPINFOHEADER bmhi, bmhi_gray;
 
     /*Opem files*/
-    fp = fopen(Src, "r");
-    fp_gray = fopen("binary_algo_2.bmp", "w");
-    if (fp == NULL || fp_gray == NULL)
+    fp = fopen((Src+".bmp").c_str(), "r");
+    if (fp == NULL)
     {
         printf("Error opening source file\n");
         return 0;
     }
+    fp_dilation = fopen((Dst+"_dilation.bmp").c_str(), "w");
+    fp_erosion = fopen((Dst+"_erosion.bmp").c_str(), "w");
+    fp_opening = fopen((Dst+"_opening.bmp").c_str(), "w");
+    fp_closing = fopen((Dst+"_closing.bmp").c_str(), "w");
     /*Read header*/
     fread(&bmfh, sizeof(BITMAPFILEHEADER), 1, fp);
     fread(&bmhi, sizeof(BITMAPINFOHEADER), 1, fp);
@@ -152,15 +194,24 @@ int binaryImage(char *Src)
     bmfh_gray.bfSize = bmhi.biHeight*((bmhi.biWidth * 8 + 31)&~31) / 8 + sizeof(BITMAPFILEHEADER)+sizeof(BITMAPINFOHEADER)+sizeof(RGBQUAD)* 256;
     bmfh_gray.bfOffBits = sizeof(BITMAPFILEHEADER)+sizeof(BITMAPINFOHEADER)+sizeof(RGBQUAD)* 256;
     bmhi_gray.biBitCount = 8;
-    fwrite(&bmfh_gray, sizeof(BITMAPFILEHEADER), 1, fp_gray);
-    fwrite(&bmhi_gray, sizeof(BITMAPINFOHEADER), 1, fp_gray);
-    fwrite(&aColors, sizeof(RGBQUAD)* 256, 1, fp_gray);
+    fwrite(&bmfh_gray, sizeof(BITMAPFILEHEADER), 1, fp_dilation);
+    fwrite(&bmhi_gray, sizeof(BITMAPINFOHEADER), 1, fp_dilation);
+    fwrite(&aColors, sizeof(RGBQUAD)* 256, 1, fp_dilation);
+    fwrite(&bmfh_gray, sizeof(BITMAPFILEHEADER), 1, fp_erosion);
+    fwrite(&bmhi_gray, sizeof(BITMAPINFOHEADER), 1, fp_erosion);
+    fwrite(&aColors, sizeof(RGBQUAD)* 256, 1, fp_erosion);
+    fwrite(&bmfh_gray, sizeof(BITMAPFILEHEADER), 1, fp_opening);
+    fwrite(&bmhi_gray, sizeof(BITMAPINFOHEADER), 1, fp_opening);
+    fwrite(&aColors, sizeof(RGBQUAD)* 256, 1, fp_opening);
+    fwrite(&bmfh_gray, sizeof(BITMAPFILEHEADER), 1, fp_closing);
+    fwrite(&bmhi_gray, sizeof(BITMAPINFOHEADER), 1, fp_closing);
+    fwrite(&aColors, sizeof(RGBQUAD)* 256, 1, fp_closing);
 
     /*tmp data of sliding algorithm*/
     double *fullImageY = new double[bmhi.biHeight*bmhi.biWidth];
     /*Read Data*/
     PIXEL tmp[4320];/*buffer to store data of a line*/
-     BYTE tmp_gray[4320];/*buffer to store the grayscale data of a line*/
+    BYTE *tmp_full_image = new BYTE[4320*7680];
     PIXEL_YUV BUFFER;
     for (i = 0; i < bmhi.biHeight; i++)
     {
@@ -179,29 +230,65 @@ int binaryImage(char *Src)
     for (i = 0; i < bmhi.biHeight; i++)
     {
         fread(&tmp, byteWidth, 1, fp);
-        unsigned int j;
-       
+        unsigned int j;    
         for (j = 0; j < bmhi.biWidth; j++)
         {
             BUFFER.Y = tmp[j].RED*0.299 + tmp[j].GREEN*0.587 + tmp[j].BLUE*0.114;/*RGB->YUV*/
-            tmp_gray[j] = BUFFER.Y>threshoulds[i/SLIDEHEIGHT*HORIZONTALSLIDE+j/SLIDEWIDTH] ? 255 : 0;
+            tmp_full_image[i*bmhi.biWidth+j]=BUFFER.Y>threshoulds[i/SLIDEHEIGHT*HORIZONTALSLIDE+j/SLIDEWIDTH] ? 255 : 0;
         }
-        //tmp_full_gray[i]=tmp_gray;
-        fwrite(&tmp_gray, 1, byteWidthGray, fp_gray);
+    } 
+
+    /*Dilate and return the generated image*/
+    BYTE* dilation_image=Dilation(tmp_full_image,bmhi.biHeight,bmhi.biWidth);
+    for(unsigned int i=0;i<bmhi.biHeight;i++)
+    {
+        fwrite(&dilation_image[i*bmhi.biWidth], 1, byteWidthGray, fp_dilation);
     }
+
+    /*Erode and return the generated image*/
+    BYTE* erosion_image=Erosion(tmp_full_image,bmhi.biHeight,bmhi.biWidth);
+    for(unsigned int i=0;i<bmhi.biHeight;i++)
+    {
+        fwrite(&erosion_image[i*bmhi.biWidth], 1, byteWidthGray, fp_erosion);
+    }
+
+    /*Open and return the generated image*/
+    BYTE* opening_image=Dilation(erosion_image,bmhi.biHeight,bmhi.biWidth);
+    for(unsigned int i=0;i<bmhi.biHeight;i++)
+    {
+        fwrite(&opening_image[i*bmhi.biWidth], 1, byteWidthGray, fp_opening);
+    }
+
+    /*Close and return the generated image*/
+    BYTE* closing_image=Erosion(dilation_image,bmhi.biHeight,bmhi.biWidth);
+    for(unsigned int i=0;i<bmhi.biHeight;i++)
+    {
+        fwrite(&closing_image[i*bmhi.biWidth], 1, byteWidthGray, fp_closing);
+    }
+    delete dilation_image;
+    delete erosion_image;
+    delete opening_image;
+    delete closing_image;
+    delete tmp_full_image;
     fclose(fp);
-    fclose(fp_gray);
+    fclose(fp_dilation);
+    fclose(fp_erosion);
+    fclose(fp_opening);
+    fclose(fp_closing);
     return 1;
 }
 
 int main()
 {
-    char SrcFileName[20];
-    printf("Please enter the name of source file:");
-    scanf("%s", SrcFileName);
-    printf("Please enter the number of horizontal slide: ");
-    scanf("%d", &HORIZONTALSLIDE);
-    printf("Please enter the number of vertical slide: ");
-    scanf("%d", &VERTICALSLIDE);
-    binaryImage(SrcFileName);
+    string srcFileName;
+    string dstFileName;
+    cout<<"Please enter the name of source file(without .bmp): ";
+    cin>>srcFileName;
+    cout<<"Please enter the number of destination file(without .bmp): ";
+    cin>>dstFileName;
+    cout<<"Please enter the number of horizontal slide: ";
+    cin>>HORIZONTALSLIDE;
+    cout<<"Please enter the number of vertical slide: ";
+    cin>>VERTICALSLIDE;
+    binaryImage(srcFileName,dstFileName);
 }
